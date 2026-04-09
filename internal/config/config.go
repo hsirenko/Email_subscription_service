@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strings"
 	"time"
 )
 
@@ -17,6 +18,10 @@ type Config struct {
 	SMTPPass    string
 	SMTPFrom    string
 	ScanInterval time.Duration
+	// CORSAllowedOrigins is from CORS_ALLOWED_ORIGINS (comma-separated). Used when the web UI is on another origin (e.g. Vercel).
+	CORSAllowedOrigins []string
+	// CORSAllowVercelSubdomains allows any https origin whose host ends with .vercel.app (preview + production).
+	CORSAllowVercelSubdomains bool
 }
 
 
@@ -65,19 +70,41 @@ func FromEnv() Config {
 		scanInterval = 2 * time.Minute
 	}
 
+	corsOrigins := parseCommaList(os.Getenv("CORS_ALLOWED_ORIGINS"))
+	corsVercel := strings.EqualFold(strings.TrimSpace(os.Getenv("CORS_ALLOW_VERCEL_SUBDOMAINS")), "1") ||
+		strings.EqualFold(strings.TrimSpace(os.Getenv("CORS_ALLOW_VERCEL_SUBDOMAINS")), "true")
+
 	return Config{
-		Port:        port,
-		DatabaseURL: dbURL,
-		PublicURL:   publicURL,
-		GitHubToken: ghToken,
-		EmailDriver: emailDriver,
-		SMTPHost:    smtpHost,
-		SMTPPort:    smtpPort,
-		SMTPUser:    smtpUser,
-		SMTPPass:    smtpPass,
-		SMTPFrom:    smtpFrom,
+		Port:         port,
+		DatabaseURL:  dbURL,
+		PublicURL:    publicURL,
+		GitHubToken:  ghToken,
+		EmailDriver:  emailDriver,
+		SMTPHost:     smtpHost,
+		SMTPPort:     smtpPort,
+		SMTPUser:     smtpUser,
+		SMTPPass:     smtpPass,
+		SMTPFrom:     smtpFrom,
 		ScanInterval: scanInterval,
+		CORSAllowedOrigins:        corsOrigins,
+		CORSAllowVercelSubdomains: corsVercel,
 	}
+}
+
+func parseCommaList(s string) []string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	var out []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func (c Config) HTTPAddr() string {

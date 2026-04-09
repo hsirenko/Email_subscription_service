@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RELEASE RADAR // GitHub drops</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div class="noise" aria-hidden="true"></div>
+    <div class="grid-bg" aria-hidden="true"></div>
+
+    <header class="top-bar">
+      <div class="logo">
+        <span class="logo-hex">⬡</span>
+        <span>RELEASE_RADAR</span>
+      </div>
+      <div class="chain-pill">
+        <span class="pulse"></span>
+        <span id="net-status">API: configure VITE_API_URL</span>
+      </div>
+    </header>
+
+    <main class="shell">
+      <section class="hero">
+        <p class="eyebrow">// on-chain vibes, off-chain mail</p>
+        <h1>
+          Subscribe to
+          <span class="glitch" data-text="GitHub">GitHub</span>
+          <br />
+          <span class="accent">release</span> signals
+        </h1>
+        <p class="sub">
+          Drop your email + repo (<code>owner/repo</code>). We ping GitHub, you confirm in inbox,
+          then every new <strong>release tag</strong> hits your mail.
+        </p>
+      </section>
+
+      <section class="panel">
+        <div class="panel-corner tl"></div>
+        <div class="panel-corner tr"></div>
+        <div class="panel-corner bl"></div>
+        <div class="panel-corner br"></div>
+
+        <form id="sub-form" class="form" autocomplete="on">
+          <label class="field">
+            <span class="label">EMAIL_HASH</span>
+            <input
+              name="email"
+              type="email"
+              required
+              placeholder="operator@matrix.local"
+              autocomplete="email"
+            />
+          </label>
+          <label class="field">
+            <span class="label">REPO_CONTRACT</span>
+            <input
+              name="repo"
+              type="text"
+              required
+              placeholder="cli/cli"
+              pattern="[^/]+/[^/]+"
+              title="owner/repo"
+              autocomplete="off"
+            />
+          </label>
+          <button type="submit" class="btn-primary">
+            <span class="btn-glow"></span>
+            <span>INIT_SUBSCRIBE</span>
+          </button>
+        </form>
+
+        <div id="msg" class="msg" role="status" aria-live="polite"></div>
+      </section>
+
+      <footer class="foot">
+        <span class="mono">v0x1 // GitHub Release Notification API</span>
+      </footer>
+    </main>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

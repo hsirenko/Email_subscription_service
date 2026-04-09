@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!web/.env.example
 
 # Go build / test
 /bin/
@@ -22,3 +23,7 @@ coverage.html
 *.swp
 *.swo
 .DS_Store
+
+# Frontend (Vercel / Vite)
+web/node_modules/
+web/dist/

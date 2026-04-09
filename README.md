@@ -55,6 +55,76 @@ Migrations run automatically on startup via `golang-migrate`.
 #### Scanner
 - **`SCAN_INTERVAL`**: how often to scan GitHub for new releases. Example: `10s`, `2m` (default: `2m`).
 
+#### CORS (browser UI on another origin, e.g. Vercel)
+- **`CORS_ALLOWED_ORIGINS`**: comma-separated list of allowed `Origin` values (e.g. `https://my-app.vercel.app,http://localhost:5173`). If set (non-empty), CORS middleware is enabled with **`GET`**, **`POST`**, **`OPTIONS`**.
+- **`CORS_ALLOW_VERCEL_SUBDOMAINS`**: set to `1` or `true` to allow any origin whose host ends with **`.vercel.app`** (preview + production URLs), in addition to exact matches in **`CORS_ALLOWED_ORIGINS`**.
+
+### Deploy: Fly.io (API) + Vercel (web UI)
+
+The **API** runs on [Fly.io](https://fly.io/) using the repo **`Dockerfile`**. The **subscribe UI** is a static [Vite](https://vitejs.dev/) app in **`web/`**, deployed to [Vercel](https://vercel.com/) with **`VITE_API_URL`** pointing at your Fly app.
+
+#### 1) Postgres on Fly
+
+```bash
+fly postgres create --name email-subscription-db --region ams
+fly postgres attach email-subscription-db -a <your-api-app-name>
+```
+
+(`attach` sets **`DATABASE_URL`** on the app.)
+
+#### 2) API app
+
+1. Install the [Fly CLI](https://fly.io/docs/hands-on/install-flyctl/) and log in.
+2. Edit **`fly.toml`**: set **`app`** to a unique name (replace `email-subscription-api`).
+3. From the repo root:
+
+```bash
+fly launch --no-deploy   # if first time; reuse existing fly.toml when prompted
+fly secrets set \
+  PUBLIC_URL="https://<your-api-app-name>.fly.dev" \
+  EMAIL_DRIVER="smtp" \
+  SMTP_HOST="smtp.gmail.com" \
+  SMTP_PORT="587" \
+  SMTP_FROM="you@gmail.com" \
+  SMTP_USERNAME="you@gmail.com" \
+  SMTP_PASSWORD="<app-password>" \
+  GITHUB_TOKEN="<optional-github-pat>" \
+  CORS_ALLOW_VERCEL_SUBDOMAINS="true"
+```
+
+Add **`CORS_ALLOWED_ORIGINS`** if you use a **custom domain** on Vercel (not `*.vercel.app`), e.g. `https://releases.example.com`.
+
+4. Deploy:
+
+```bash
+fly deploy
+```
+
+5. Smoke test: `https://<your-app>.fly.dev/health`
+
+**Important:** **`PUBLIC_URL`** must be the **public HTTPS URL** of the API so confirmation and unsubscribe links in emails work.
+
+#### 3) Web UI on Vercel
+
+**Why a root `vercel.json` exists:** If the Vercel **Root Directory** is left as the repository root (`.`), Vercel may detect **Go** (`go.mod`) and try to run a **serverless** runtime—then `/` crashes with **`FUNCTION_INVOCATION_FAILED`**. The repo root **`vercel.json`** forces a static build: `cd web && npm run build` and **`outputDirectory`: `web/dist`**.
+
+You can deploy in either mode:
+
+1. **Recommended:** Vercel → **Settings → General → Root Directory** = **`web`**. Then **`web/vercel.json`** applies (`framework: vite`, output **`dist`**).
+2. **Or** leave Root Directory **empty** / **`.`** and rely on the **root `vercel.json`** (builds from **`web/`** automatically).
+
+Under **Environment Variables**, add **`VITE_API_URL`** = `https://<your-api-app-name>.fly.dev` (no trailing slash). Apply to Production (and Preview if you want preview deploys to hit the same API). Redeploy after changing it.
+
+**If you still see `500` / Serverless Function crashed:** In **Settings → General**, clear any **Framework Override** that isn’t **Vite** / static, remove custom **Rewrites** to serverless routes, and confirm **Output Directory** matches **`dist`** (when root is `web`) or leave it unset when using the root **`vercel.json`**.
+
+3. Deploy. Local dev: copy **`web/.env.example`** to **`web/.env`** and run:
+
+```bash
+cd web && npm install && npm run dev
+```
+
+Open **http://localhost:5173**. The browser will call a **different origin** than the API (e.g. `http://localhost:8080`), so enable CORS on the API: set **`CORS_ALLOWED_ORIGINS=http://localhost:5173`** (e.g. in `docker-compose.yml` for the `app` service). Fly production can use **`CORS_ALLOW_VERCEL_SUBDOMAINS=true`** for `*.vercel.app` plus any custom domain in **`CORS_ALLOWED_ORIGINS`**.
+
 ### Optional: real inbox (SMTP, e.g. Gmail)
 
 By default the app uses **`EMAIL_DRIVER=log`** (URLs printed in container logs) or MailHog when you use the MailHog compose profile. To receive confirmation and release mail in a real mailbox:
