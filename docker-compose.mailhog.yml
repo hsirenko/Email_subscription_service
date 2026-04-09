@@ -1,0 +1,15 @@
+services:
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+  app:
+    environment:
+      EMAIL_DRIVER: "smtp"
+      SMTP_HOST: "mailhog"
+      SMTP_PORT: "1025"
+      SMTP_FROM: "noreply@local"
+      SMTP_USERNAME: ""
+      SMTP_PASSWORD: ""

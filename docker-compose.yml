@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: releases
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d releases"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORT: "8080"
+      DATABASE_URL: "postgres://postgres:postgres@postgres:5432/releases?sslmode=disable"
+      PUBLIC_URL: "http://localhost:8080"
+      SCAN_INTERVAL: "10s"
+      EMAIL_DRIVER: "log" 
+    ports:
+      - "8080:8080"
+  mailhog:
+    profiles: ["mailhog"]
+    image: mailhog/mailhog:v1.0.1
+    ports:
+      - "1025:1025"
+      - "8025:8025"
