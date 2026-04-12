@@ -1,3 +1,5 @@
+// Command api runs the HTTP server, Postgres migrations, GitHub client, mailer,
+// and the background release scanner in one process.
 package main
 
 import (
@@ -8,19 +10,19 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
-	"strconv"
 
-	"email-subscription-service/internal/integrations/email"
-	emailSMTP "email-subscription-service/internal/integrations/email/smtp"
 	"email-subscription-service/internal/config"
-	emailLog "email-subscription-service/internal/integrations/email/log"
-	"email-subscription-service/internal/integrations/github"
 	"email-subscription-service/internal/httpapi"
+	"email-subscription-service/internal/integrations/email"
+	emailLog "email-subscription-service/internal/integrations/email/log"
+	emailSMTP "email-subscription-service/internal/integrations/email/smtp"
+	"email-subscription-service/internal/integrations/github"
+	"email-subscription-service/internal/jobs"
 	"email-subscription-service/internal/service"
 	"email-subscription-service/internal/store/postgres"
-	"email-subscription-service/internal/jobs"
 
 	mgpostgres "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -89,7 +91,7 @@ func main() {
 	defer stop()
 
 	scanner := jobs.Scanner{
-		Store:   st,        // <- Postgres store implements ReleaseJobStore
+		Store:   st, // <- Postgres store implements ReleaseJobStore
 		GitHub:  gh,
 		Email:   mailer,
 		Every:   cfg.ScanInterval,

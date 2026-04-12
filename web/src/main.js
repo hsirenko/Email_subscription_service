@@ -1,29 +1,31 @@
-const raw = import.meta.env.VITE_API_URL;
-const API_BASE = typeof raw === "string" ? raw.replace(/\/$/, "") : "";
+import { getApiBase } from "./env.js";
+import { postSubscribe } from "./api/subscribe.js";
+import { createMessenger, setNetStatus } from "./ui/messages.js";
+
+const API_BASE = getApiBase();
 
 const form = document.getElementById("sub-form");
 const msg = document.getElementById("msg");
 const netStatus = document.getElementById("net-status");
-
-function setMsg(text, kind) {
-  msg.textContent = text;
-  msg.className = "msg" + (kind ? ` ${kind}` : "");
-}
+const messenger = createMessenger(msg);
 
 if (!API_BASE) {
-  setMsg(
+  messenger.set(
     "Set VITE_API_URL (Fly app URL, no trailing slash) in Vercel env and redeploy.",
     "warn",
   );
-  netStatus.textContent = "API: not configured";
+  setNetStatus(netStatus, "");
 } else {
-  netStatus.textContent = `API: ${API_BASE.replace(/^https?:\/\//, "")}`;
+  setNetStatus(netStatus, API_BASE);
 }
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   if (!API_BASE) {
-    setMsg("Missing VITE_API_URL. Add it in Vercel → Settings → Environment Variables.", "warn");
+    messenger.set(
+      "Missing VITE_API_URL. Add it in Vercel → Settings → Environment Variables.",
+      "warn",
+    );
     return;
   }
 
@@ -31,19 +33,16 @@ form.addEventListener("submit", async (e) => {
   const email = String(fd.get("email") || "").trim();
   const repo = String(fd.get("repo") || "").trim();
 
-  setMsg("Broadcasting to chain…", "");
+  messenger.set("Broadcasting to chain…", "");
 
   try {
-    const res = await fetch(`${API_BASE}/api/subscribe`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, repo }),
+    const { ok, status, statusText, text } = await postSubscribe(API_BASE, {
+      email,
+      repo,
     });
 
-    const text = await res.text();
-
-    if (res.ok) {
-      setMsg(
+    if (ok) {
+      messenger.set(
         "Signal accepted. Check your inbox and confirm the subscription link.",
         "ok",
       );
@@ -51,22 +50,25 @@ form.addEventListener("submit", async (e) => {
       return;
     }
 
-    if (res.status === 409) {
-      setMsg("Already subscribed (pending or active) for this repo.", "err");
+    if (status === 409) {
+      messenger.set("Already subscribed (pending or active) for this repo.", "err");
       return;
     }
-    if (res.status === 404) {
-      setMsg("Repository not found on GitHub (owner/repo).", "err");
+    if (status === 404) {
+      messenger.set("Repository not found on GitHub (owner/repo).", "err");
       return;
     }
-    if (res.status === 400) {
-      setMsg("Invalid email or repo format. Use owner/repo.", "err");
+    if (status === 400) {
+      messenger.set("Invalid email or repo format. Use owner/repo.", "err");
       return;
     }
 
-    setMsg(`Request failed (${res.status}): ${text || res.statusText}`, "err");
+    messenger.set(
+      `Request failed (${status}): ${text || statusText}`,
+      "err",
+    );
   } catch (err) {
-    setMsg(
+    messenger.set(
       err instanceof Error ? err.message : "Network error — check CORS and API URL.",
       "err",
     );

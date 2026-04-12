@@ -13,6 +13,7 @@ import (
 	"email-subscription-service/internal/store"
 )
 
+// Store is the PostgreSQL-backed implementation of store interfaces.
 type Store struct {
 	DB *sql.DB
 }

@@ -14,7 +14,8 @@ import (
 	"github.com/go-chi/cors"
 )
 
-func NewRouter(cfg config.Config, subSvc handlers.SubscriptionService) http.Handler {
+// NewRouter returns the application HTTP handler with Chi middleware and /api routes.
+func NewRouter(cfg config.Config, subSvc handlers.SubscriptionServicer) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -28,14 +29,20 @@ func NewRouter(cfg config.Config, subSvc handlers.SubscriptionService) http.Hand
 
 	r.Get("/health", handlers.Health)
 
-	h := handlers.SubscriptionHandlers{Svc: subSvc}
+	h := handlers.SubscriptionHandlers{
+		Svc:          subSvc,
+		WebUIURL:     cfg.WebUIURL,
+		APIPublicURL: strings.TrimRight(cfg.PublicURL, "/"),
+	}
 
 	// Swagger basePath: /api
 	r.Route("/api", func(r chi.Router) {
-		r.Post("/subscribe", h.Subscribe)                 // POST /api/subscribe
-		r.Get("/confirm/{token}", h.ConfirmSubscription)  // GET /api/confirm/{token}
-		r.Get("/unsubscribe/{token}", h.Unsubscribe)      // GET /api/unsubscribe/{token}
-		r.Get("/subscriptions", h.GetSubscriptions)       // GET /api/subscriptions?email=
+		r.Post("/subscribe", h.Subscribe) // POST /api/subscribe
+		// Static path must be registered before /confirm/{token} so "thanks" is not captured as a token.
+		r.Get("/confirm/thanks", h.ConfirmThanks)        // GET /api/confirm/thanks
+		r.Get("/confirm/{token}", h.ConfirmSubscription) // GET /api/confirm/{token}
+		r.Get("/unsubscribe/{token}", h.Unsubscribe)   // GET /api/unsubscribe/{token}
+		r.Get("/subscriptions", h.GetSubscriptions)      // GET /api/subscriptions?email=
 	})
 
 	return r

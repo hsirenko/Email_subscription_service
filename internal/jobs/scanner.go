@@ -12,12 +12,13 @@ import (
 	"email-subscription-service/internal/store"
 )
 
+// Scanner periodically checks GitHub for new release tags and notifies subscribers.
 type Scanner struct {
 	Store   store.ReleaseJobStore
 	GitHub  github.Client
 	Email   email.Sender
 	Every   time.Duration
-	BaseURL string // for unsubscribe links
+	BaseURL string // API public base URL; used to build unsubscribe links in emails
 }
 
 func (s *Scanner) Run(ctx context.Context) {
@@ -82,7 +83,7 @@ func (s *Scanner) scanOnce(ctx context.Context) {
 		}
 		log.Printf("scanner.repo new_release repo=%s tag=%s last_seen=%s subs=%d", repoFull, tag, lastSeen, len(subs))
 
-		releaseURL := "https://github.com/" + repoFull + "/releases/tag/" + tag
+		releaseURL := githubReleaseURL(repoFull, tag)
 
 		for _, sub := range subs {
 			enq, err := s.Store.EnqueueNotification(ctx, sub.ID, tag)
@@ -94,7 +95,7 @@ func (s *Scanner) scanOnce(ctx context.Context) {
 				continue
 			}
 
-			unsubURL := strings.TrimRight(s.BaseURL, "/") + "/api/unsubscribe/" + sub.UnsubscribeTok
+			unsubURL := unsubscribeURL(s.BaseURL, sub.UnsubscribeTok)
 			if err := s.Email.SendRelease(sub.Email, repoFull, tag, releaseURL, unsubURL); err != nil {
 				log.Printf("scanner.notify failed sub_id=%d to=%s repo=%s tag=%s err=%q", sub.ID, sub.Email, repoFull, tag, err.Error())
 				_ = s.Store.MarkNotificationFailed(ctx, sub.ID, tag, err.Error())
@@ -118,8 +119,8 @@ func (s *Scanner) retryPending(ctx context.Context) {
 		log.Printf("scanner.retry pending=%d", len(pending))
 	}
 	for _, pn := range pending {
-		releaseURL := "https://github.com/" + pn.RepoFullName + "/releases/tag/" + pn.ReleaseTag
-		unsubURL := strings.TrimRight(s.BaseURL, "/") + "/api/unsubscribe/" + pn.UnsubscribeTok
+		releaseURL := githubReleaseURL(pn.RepoFullName, pn.ReleaseTag)
+		unsubURL := unsubscribeURL(s.BaseURL, pn.UnsubscribeTok)
 		if err := s.Email.SendRelease(pn.Email, pn.RepoFullName, pn.ReleaseTag, releaseURL, unsubURL); err != nil {
 			log.Printf("scanner.retry failed sub_id=%d to=%s repo=%s tag=%s err=%q", pn.SubscriptionID, pn.Email, pn.RepoFullName, pn.ReleaseTag, err.Error())
 			_ = s.Store.MarkNotificationFailed(ctx, pn.SubscriptionID, pn.ReleaseTag, err.Error())
@@ -138,4 +139,13 @@ func splitRepo(full string) (owner, name string, ok bool) {
 	return parts[0], parts[1], true
 }
 
+func githubReleaseURL(repoFullName, tag string) string {
+	return "https://github.com/" + repoFullName + "/releases/tag/" + tag
+}
+
+func unsubscribeURL(apiBaseURL, unsubscribeToken string) string {
+	return strings.TrimRight(apiBaseURL, "/") + "/api/unsubscribe/" + unsubscribeToken
+}
+
+// ScanOnce runs a single scanner cycle (for tests and manual triggers).
 func (s *Scanner) ScanOnce(ctx context.Context) { s.scanOnce(ctx) }

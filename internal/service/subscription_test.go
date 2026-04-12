@@ -2,8 +2,8 @@ package service_test
 
 import (
 	"context"
-	"testing"
 	"strings"
+	"testing"
 
 	"email-subscription-service/internal/domain"
 	"email-subscription-service/internal/integrations/email/log"
@@ -13,7 +13,7 @@ import (
 )
 
 type captureSender struct {
-	LastConfirmURL string
+	LastConfirmURL     string
 	LastUnsubscribeURL string
 
 	LastReleaseToEmail string

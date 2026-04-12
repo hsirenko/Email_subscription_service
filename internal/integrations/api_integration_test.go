@@ -2,12 +2,12 @@ package integration_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"testing"
 	"time"
-	"fmt"
-	"os"
 )
 
 func TestSubscribeFlow_SendsEmailToMailhog(t *testing.T) {
@@ -15,7 +15,7 @@ func TestSubscribeFlow_SendsEmailToMailhog(t *testing.T) {
 	if os.Getenv("INTEGRATION_MAILHOG") != "1" {
 		t.Skip("set INTEGRATION_MAILHOG=1 with docker compose + mailhog + SMTP, app on :8080")
 	}
-	
+
 	httpClient := &http.Client{Timeout: 10 * time.Second}
 
 	// Subscribe

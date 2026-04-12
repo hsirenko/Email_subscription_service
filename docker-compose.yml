@@ -24,6 +24,7 @@ services:
       PORT: "8080"
       DATABASE_URL: "postgres://postgres:postgres@postgres:5432/releases?sslmode=disable"
       PUBLIC_URL: "http://localhost:8080"
+      WEB_UI_URL: "http://localhost:5173"
       SCAN_INTERVAL: "10s"
       EMAIL_DRIVER: "log" 
     ports:

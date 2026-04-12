@@ -11,16 +11,15 @@ import (
 )
 
 type fakeGitHub struct {
-	Tag   string
-	Ok    bool
-	Err   error
+	Tag string
+	Ok  bool
+	Err error
 }
 
 func (f fakeGitHub) RepoExists(ctx context.Context, repo domain.Repo) (bool, error) { return true, nil }
 func (f fakeGitHub) LatestReleaseTag(ctx context.Context, repo domain.Repo) (string, bool, error) {
 	return f.Tag, f.Ok, f.Err
 }
-
 
 type fakeJobStore struct {
 	Grouped map[string][]domain.ActiveSubscription

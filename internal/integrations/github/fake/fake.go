@@ -7,8 +7,8 @@ import (
 )
 
 type Client struct {
-	Exists bool
-	Err    error
+	Exists    bool
+	Err       error
 	LatestTag string
 	HasLatest bool
 }

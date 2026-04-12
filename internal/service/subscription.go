@@ -14,11 +14,12 @@ import (
 	"email-subscription-service/internal/store"
 )
 
+// SubscriptionService coordinates subscribe / confirm / unsubscribe flows.
 type SubscriptionService struct {
 	Store     store.SubscriptionStore
 	GitHub    github.Client
 	Email     email.Sender
-	PublicURL string // e.g. "http://localhost:8080" (used to build confirm link)
+	PublicURL string // base URL for confirm and unsubscribe links in outbound mail
 }
 
 func (s SubscriptionService) Subscribe(ctx context.Context, emailAddr string, repoRaw string) error {
@@ -33,7 +34,6 @@ func (s SubscriptionService) Subscribe(ctx context.Context, emailAddr string, re
 
 	ok, err := s.GitHub.RepoExists(ctx, repo)
 	if err != nil {
-		// Later you can map GitHub 429 specially; for now bubble up.
 		return err
 	}
 	if !ok {

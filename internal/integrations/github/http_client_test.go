@@ -4,10 +4,10 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
-	"sync"
-	"strconv"
 
 	"email-subscription-service/internal/domain"
 	"email-subscription-service/internal/integrations/github"
@@ -133,9 +133,9 @@ func TestHTTPClient_LatestReleaseTag_404_NoRelease(t *testing.T) {
 
 func TestHTTPClient_429_RetryAfter_Respected(t *testing.T) {
 	var (
-		mu       sync.Mutex
-		slept    []time.Duration
-		calls    int
+		mu    sync.Mutex
+		slept []time.Duration
+		calls int
 	)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
@@ -223,4 +223,3 @@ func TestHTTPClient_429_RateLimitReset_Fallback(t *testing.T) {
 		t.Fatalf("expected sleep > 0, got %v", slept[0])
 	}
 }
-

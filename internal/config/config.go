@@ -6,27 +6,29 @@ import (
 	"time"
 )
 
+// Config holds process-wide settings read once at startup.
 type Config struct {
-	Port string
-	DatabaseURL string
-	PublicURL  string
-	GitHubToken string // os.Getenv("GITHUB_TOKEN")
-	EmailDriver string
-	SMTPHost    string
-	SMTPPort    string
-	SMTPUser    string
-	SMTPPass    string
-	SMTPFrom    string
+	Port         string
+	DatabaseURL  string
+	PublicURL    string
+	GitHubToken  string
+	EmailDriver  string
+	SMTPHost     string
+	SMTPPort     string
+	SMTPUser     string
+	SMTPPass     string
+	SMTPFrom     string
 	ScanInterval time.Duration
-	// CORSAllowedOrigins is from CORS_ALLOWED_ORIGINS (comma-separated). Used when the web UI is on another origin (e.g. Vercel).
+
+	// CORSAllowedOrigins is parsed from CORS_ALLOWED_ORIGINS (comma-separated).
 	CORSAllowedOrigins []string
-	// CORSAllowVercelSubdomains allows any https origin whose host ends with .vercel.app (preview + production).
+	// CORSAllowVercelSubdomains allows https origins whose host ends with .vercel.app.
 	CORSAllowVercelSubdomains bool
+	// WebUIURL is the static subscribe app (e.g. Vercel). Used for HTML confirm flow links.
+	WebUIURL string
 }
 
-
-
-
+// FromEnv reads configuration from the process environment.
 func FromEnv() Config {
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -74,20 +76,23 @@ func FromEnv() Config {
 	corsVercel := strings.EqualFold(strings.TrimSpace(os.Getenv("CORS_ALLOW_VERCEL_SUBDOMAINS")), "1") ||
 		strings.EqualFold(strings.TrimSpace(os.Getenv("CORS_ALLOW_VERCEL_SUBDOMAINS")), "true")
 
+	webUI := strings.TrimSpace(os.Getenv("WEB_UI_URL"))
+
 	return Config{
-		Port:         port,
-		DatabaseURL:  dbURL,
-		PublicURL:    publicURL,
-		GitHubToken:  ghToken,
-		EmailDriver:  emailDriver,
-		SMTPHost:     smtpHost,
-		SMTPPort:     smtpPort,
-		SMTPUser:     smtpUser,
-		SMTPPass:     smtpPass,
-		SMTPFrom:     smtpFrom,
-		ScanInterval: scanInterval,
+		Port:                      port,
+		DatabaseURL:               dbURL,
+		PublicURL:                 publicURL,
+		GitHubToken:               ghToken,
+		EmailDriver:               emailDriver,
+		SMTPHost:                  smtpHost,
+		SMTPPort:                  smtpPort,
+		SMTPUser:                  smtpUser,
+		SMTPPass:                  smtpPass,
+		SMTPFrom:                  smtpFrom,
+		ScanInterval:              scanInterval,
 		CORSAllowedOrigins:        corsOrigins,
 		CORSAllowVercelSubdomains: corsVercel,
+		WebUIURL:                  webUI,
 	}
 }
 

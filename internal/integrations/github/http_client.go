@@ -289,4 +289,3 @@ func (c *HTTPClient) cachePut(key string, exists bool) {
 		expires: time.Now().Add(c.cacheTTL),
 	}
 }
-

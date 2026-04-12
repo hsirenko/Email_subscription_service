@@ -5,6 +5,8 @@ import (
 	"strings"
 )
 
+// ParseRepo splits "owner/name". Extra slashes or empty segments return
+// ErrInvalidRepoFormat.
 func ParseRepo(s string) (Repo, error) {
 	s = strings.TrimSpace(s)
 	parts := strings.Split(s, "/")
@@ -15,6 +17,7 @@ func ParseRepo(s string) (Repo, error) {
 	return Repo{Owner: parts[0], Name: parts[1]}, nil
 }
 
+// ValidateEmail accepts a single RFC 5322 address via net/mail.
 func ValidateEmail(s string) error {
 	s = strings.TrimSpace(s)
 	if s == "" {

@@ -17,4 +17,3 @@ type SubscriptionStore interface {
 
 	ListActiveByEmail(ctx context.Context, email string) ([]domain.Subscription, error)
 }
-

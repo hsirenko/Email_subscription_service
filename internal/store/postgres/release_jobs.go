@@ -7,7 +7,10 @@ import (
 	"strings"
 
 	"email-subscription-service/internal/domain"
+	"email-subscription-service/internal/store"
 )
+
+var _ store.ReleaseJobStore = (*Store)(nil)
 
 func (s *Store) ListActiveSubscriptionsGroupedByRepo(ctx context.Context) (map[string][]domain.ActiveSubscription, error) {
 	rows, err := s.DB.QueryContext(ctx, `
@@ -16,7 +19,9 @@ func (s *Store) ListActiveSubscriptionsGroupedByRepo(ctx context.Context) (map[s
 		WHERE status = 'active'
 		ORDER BY repo_full_name, id
 	`)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer rows.Close()
 	out := make(map[string][]domain.ActiveSubscription)
 	for rows.Next() {
@@ -31,7 +36,7 @@ func (s *Store) ListActiveSubscriptionsGroupedByRepo(ctx context.Context) (map[s
 	}
 	return out, nil
 }
-	
+
 func (s *Store) GetRepoState(ctx context.Context, repoFullName string) (string, error) {
 	var tag string
 	err := s.DB.QueryRowContext(ctx, `
