@@ -1,5 +1,5 @@
-// HTML confirm/thanks pages are a UX layer on top of the frozen swagger.yaml contract.
-// Call GET /api/confirm/{token}?format=json for the documented JSON {"ok":true} response.
+// HTML confirm/thanks and unsubscribe pages are a UX layer on top of the frozen swagger.yaml contract.
+// Use ?format=json on GET /api/confirm/{token} or GET /api/unsubscribe/{token} for the documented JSON {"ok":true} response.
 package handlers
 
 import (
@@ -93,6 +93,63 @@ func writeConfirmErrorHTMLFromErr(w http.ResponseWriter, h SubscriptionHandlers,
 	h.writeConfirmErrorHTML(w, status, err)
 }
 
+func (h SubscriptionHandlers) writeUnsubscribeSuccessHTML(w http.ResponseWriter) {
+	data := struct {
+		Title        string
+		CSS          template.CSS
+		SubscribeURL string
+	}{
+		Title:        "RELEASE RADAR // Unsubscribed",
+		CSS:          template.CSS(embeddedRadarCSS),
+		SubscribeURL: h.subscribePageURL(),
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_ = unsubscribeSuccessTpl.Execute(w, data)
+}
+
+func (h SubscriptionHandlers) writeUnsubscribeErrorHTML(w http.ResponseWriter, status int, err error) {
+	msg := http.StatusText(status)
+	switch {
+	case errors.Is(err, domain.ErrInvalidToken):
+		status = http.StatusBadRequest
+		msg = "This unsubscribe link is invalid or incomplete."
+	case errors.Is(err, domain.ErrTokenNotFound):
+		status = http.StatusNotFound
+		msg = "We could not find this unsubscribe link. It may have already been used."
+	default:
+		status = http.StatusInternalServerError
+		msg = "Something went wrong while processing your unsubscribe request. Please try again later."
+	}
+	data := struct {
+		Title        string
+		CSS          template.CSS
+		Status       int
+		Message      string
+		SubscribeURL string
+	}{
+		Title:        "RELEASE RADAR // Unsubscribe",
+		CSS:          template.CSS(embeddedRadarCSS),
+		Status:       status,
+		Message:      msg,
+		SubscribeURL: h.subscribePageURL(),
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	_ = unsubscribeErrorTpl.Execute(w, data)
+}
+
+func writeUnsubscribeErrorHTMLFromErr(w http.ResponseWriter, h SubscriptionHandlers, err error) {
+	status := http.StatusInternalServerError
+	switch {
+	case errors.Is(err, domain.ErrInvalidToken):
+		status = http.StatusBadRequest
+	case errors.Is(err, domain.ErrTokenNotFound):
+		status = http.StatusNotFound
+	}
+	h.writeUnsubscribeErrorHTML(w, status, err)
+}
+
 // ConfirmThanks serves a static thank-you page after the user declines another subscription.
 func (h SubscriptionHandlers) ConfirmThanks(w http.ResponseWriter, r *http.Request) {
 	data := struct {
@@ -108,9 +165,11 @@ func (h SubscriptionHandlers) ConfirmThanks(w http.ResponseWriter, r *http.Reque
 }
 
 var (
-	confirmSuccessTpl = template.Must(template.New("confirm_ok").Parse(confirmSuccessHTML))
-	confirmErrorTpl   = template.Must(template.New("confirm_err").Parse(confirmErrorHTML))
-	confirmThanksTpl  = template.Must(template.New("thanks").Parse(confirmThanksHTML))
+	confirmSuccessTpl     = template.Must(template.New("confirm_ok").Parse(confirmSuccessHTML))
+	confirmErrorTpl       = template.Must(template.New("confirm_err").Parse(confirmErrorHTML))
+	confirmThanksTpl      = template.Must(template.New("thanks").Parse(confirmThanksHTML))
+	unsubscribeSuccessTpl = template.Must(template.New("unsub_ok").Parse(unsubscribeSuccessHTML))
+	unsubscribeErrorTpl   = template.Must(template.New("unsub_err").Parse(unsubscribeErrorHTML))
 )
 
 const radarChrome = `
@@ -192,5 +251,41 @@ const confirmThanksHTML = radarChrome + `
       <p class="eyebrow">Channel closed</p>
       <h1>Thank you — <span class="accent">have a lovely time</span></h1>
       <p class="sub">You can close this tab. We&apos;re glad you&apos;re set up for release signals.</p>
+    </section>
+` + radarFooter
+
+const unsubscribeSuccessHTML = radarChrome + `
+    <section class="hero">
+      <p class="eyebrow">Signal dropped</p>
+      <h1>Goodbye — <span class="accent">it was nice to have you</span></h1>
+      <p class="sub">You will not receive further release notifications for this subscription. You can subscribe again anytime from the main page.</p>
+    </section>
+    <section class="panel">
+      <div class="panel-corner tl"></div>
+      <div class="panel-corner tr"></div>
+      <div class="panel-corner bl"></div>
+      <div class="panel-corner br"></div>
+      <p class="sub" style="margin:0">Want release signals for another repository later?</p>
+      <div class="btn-row">
+        <a class="btn-primary btn-link" href="{{.SubscribeURL}}"><span class="btn-glow"></span><span>Back to RELEASE_RADAR</span></a>
+      </div>
+    </section>
+` + radarFooter
+
+const unsubscribeErrorHTML = radarChrome + `
+    <section class="hero">
+      <p class="eyebrow">Link status {{.Status}}</p>
+      <h1>Unsubscribe <span class="accent">did not complete</span></h1>
+      <p class="sub">{{.Message}}</p>
+    </section>
+    <section class="panel">
+      <div class="panel-corner tl"></div>
+      <div class="panel-corner tr"></div>
+      <div class="panel-corner bl"></div>
+      <div class="panel-corner br"></div>
+      <p class="sub" style="margin:0">If you still need to leave a subscription, open the latest unsubscribe link from your email, or return to the subscribe page.</p>
+      <div class="btn-row">
+        <a class="btn-primary btn-link" href="{{.SubscribeURL}}"><span class="btn-glow"></span><span>Back to subscribe</span></a>
+      </div>
     </section>
 ` + radarFooter

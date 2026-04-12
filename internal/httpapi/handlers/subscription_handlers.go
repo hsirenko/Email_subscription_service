@@ -48,10 +48,18 @@ func (h SubscriptionHandlers) ConfirmSubscription(w http.ResponseWriter, r *http
 func (h SubscriptionHandlers) Unsubscribe(w http.ResponseWriter, r *http.Request) {
 	token := chi.URLParam(r, "token")
 	if err := h.Svc.Unsubscribe(r.Context(), token); err != nil {
-		writeSwaggerError(w, r, err)
+		if wantsJSONResponse(r) {
+			writeSwaggerError(w, r, err)
+			return
+		}
+		writeUnsubscribeErrorHTMLFromErr(w, h, err)
 		return
 	}
-	writeJSONOK(w)
+	if wantsJSONResponse(r) {
+		writeJSONOK(w)
+		return
+	}
+	h.writeUnsubscribeSuccessHTML(w)
 }
 
 func (h SubscriptionHandlers) GetSubscriptions(w http.ResponseWriter, r *http.Request) {
