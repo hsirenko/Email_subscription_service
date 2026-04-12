@@ -3,12 +3,14 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 
 	"email-subscription-service/internal/domain"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 )
 
 type SubscriptionHandlers struct {
@@ -29,7 +31,7 @@ func (h SubscriptionHandlers) Subscribe(w http.ResponseWriter, r *http.Request) 
 
 	err = h.Svc.Subscribe(r.Context(), email, repo)
 	if err != nil {
-		writeSwaggerError(w, err)
+		writeSwaggerError(w, r, err)
 		return
 	}
 	writeJSONOK(w)
@@ -39,7 +41,7 @@ func (h SubscriptionHandlers) ConfirmSubscription(w http.ResponseWriter, r *http
 	token := chi.URLParam(r, "token")
 	err := h.Svc.Confirm(r.Context(), token)
 	if err != nil {
-		writeSwaggerError(w, err)
+		writeSwaggerError(w, r, err)
 		return
 	}
 	writeJSONOK(w)
@@ -49,7 +51,7 @@ func (h SubscriptionHandlers) Unsubscribe(w http.ResponseWriter, r *http.Request
 	token := chi.URLParam(r, "token")
 	err := h.Svc.Unsubscribe(r.Context(), token)
 	if err != nil {
-		writeSwaggerError(w, err)
+		writeSwaggerError(w, r, err)
 		return
 	}
 	writeJSONOK(w)
@@ -60,7 +62,7 @@ func (h SubscriptionHandlers) GetSubscriptions(w http.ResponseWriter, r *http.Re
 
 	subs, err := h.Svc.ListByEmail(r.Context(), email)
 	if err != nil {
-		writeSwaggerError(w, err)
+		writeSwaggerError(w, r, err)
 		return
 	}
 
@@ -77,7 +79,7 @@ func writeJSONOK(w http.ResponseWriter) {
 	_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 }
 
-func writeSwaggerError(w http.ResponseWriter, err error) {
+func writeSwaggerError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, domain.ErrInvalidRepoFormat),
 		errors.Is(err, domain.ErrInvalidEmail),
@@ -89,6 +91,15 @@ func writeSwaggerError(w http.ResponseWriter, err error) {
 	case errors.Is(err, domain.ErrAlreadySubscribed):
 		http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
 	default:
+		reqID := ""
+		if r != nil {
+			reqID = middleware.GetReqID(r.Context())
+		}
+		if reqID != "" {
+			log.Printf("api error -> 500: request_id=%s err=%v", reqID, err)
+		} else {
+			log.Printf("api error -> 500: %v", err)
+		}
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 	}
 }

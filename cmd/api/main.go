@@ -27,6 +27,9 @@ import (
 )
 
 func main() {
+	// "api error -> 500: ...". Send default logs to stdout so they appear with access logs.
+	log.SetOutput(os.Stdout)
+
 	cfg := config.FromEnv()
 
 	gh := github.NewHTTPClient(github.HTTPClientConfig{

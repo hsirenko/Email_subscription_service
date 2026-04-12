@@ -1,164 +1,242 @@
-## Email Subscription Service (GitHub Releases)
+# Email subscription service (GitHub releases)
 
 API that allows users to subscribe to email notifications about new releases of a chosen GitHub repository.
 
 The public API contract is defined in `swagger.yaml` and must not be changed.
 
-### Run (Docker)
-Start Postgres + app (and optional MailHog):
+---
+
+## How it works
+
+1. **Subscribe** — `POST /api/subscribe` validates email and repo shape, checks the repo exists on GitHub, inserts a **`pending`** row (confirm + unsubscribe tokens), and sends a confirmation email (SMTP or log).
+2. **Confirm** — `GET /api/confirm/{token}` activates the subscription.
+3. **Notify** — A **scanner** loop (same process as the API) groups active subscriptions by repo, calls GitHub’s **latest release** API, compares to stored **`repo_state`**, and emails subscribers when the tag changes. Sends use the same SMTP/log driver as subscribe.
+4. **Dedupe** — Per `(subscription_id, release_tag)` in **`notification_log`**; retries use row status.
+
+**Limits (by design)** — One OS process runs **HTTP + scanner**. `repo_state` is **per repo**, not per subscriber. Private GitHub repos are not supported unless you add per-user GitHub auth later.
+
+---
+
+## Architecture
+
+| Layer | Role |
+|--------|------|
+| **`cmd/api`** | Loads config, Postgres + migrations, GitHub client, mailer; serves HTTP and starts the scanner goroutine. |
+| **`internal/httpapi`** | Chi router: `/health`, `/api/*`. CORS optional (browser UI on another origin). |
+| **`internal/service`** | Subscribe / confirm / unsubscribe orchestration. |
+| **`internal/store/postgres`** | Subscriptions, repo state, notification log. |
+| **`internal/integrations/github`** | REST client with retries (429 / 5xx). |
+| **`internal/integrations/email`** | `log` (stdout) or `smtp` sender. |
+| **`internal/jobs`** | Release scanner + retry of pending notifications. |
+| **`web/`** | Static **Vite** UI: form posts JSON to `VITE_API_URL/api/subscribe`. |
+
+---
+
+## Dependencies
+
+**Backend (Go)** — toolchain in `go.mod` (direct modules):
+
+| Module | Purpose |
+|--------|---------|
+| `github.com/go-chi/chi/v5` | HTTP router |
+| `github.com/go-chi/cors` | CORS for cross-origin browser calls |
+| `github.com/golang-migrate/migrate/v4` | SQL migrations on startup |
+| `github.com/jackc/pgx/v5` | Postgres driver (`database/sql`) |
+| `github.com/jackc/pgerrcode` | Map unique violations to “already subscribed” |
+
+**Runtime** — Postgres 16+ (migrations under `migrations/`).
+
+**Frontend** — Node 18+ for `web/`: **Vite** only (`package.json` devDependencies).
+
+**External** — [GitHub REST API](https://docs.github.com/en/rest), optional SMTP (e.g. Gmail).
+
+---
+
+## Repository layout
+
+```
+cmd/api/              # entrypoint
+internal/config/    # env-based configuration
+internal/domain/    # validation, repo parsing, errors
+internal/httpapi/   # router + handlers
+internal/service/   # subscription use-cases
+internal/store/     # persistence (postgres)
+internal/integrations/
+internal/jobs/      # release scanner
+migrations/         # golang-migrate SQL
+web/                # Vite static UI
+swagger.yaml        # API contract
+Dockerfile          # production-style API image
+docker-compose.yml  # local Postgres + app (+ optional MailHog profile)
+fly.toml            # Fly.io app config
+vercel.json         # static build when Vercel root is repo root
+web/vercel.json     # Vite config when Vercel root is web/
+```
+
+---
+
+## Run locally
+
+### API from source (`go run`) + Postgres
+
+Typical dev flow: run **Postgres** in Docker, run the **API on the host** with Go (no `npm` required).
+
+1. **Database**
+
+   ```bash
+   docker compose up -d postgres
+   ```
+
+2. **API** (from repo root; defaults in `internal/config` expect Postgres on `localhost:5432`)
+
+   ```bash
+   export DATABASE_URL='postgres://postgres:postgres@localhost:5432/releases?sslmode=disable'
+   export PUBLIC_URL='http://localhost:8080'
+   go run ./cmd/api
+   ```
+
+   This repo has a single `main` package, so **`go run ./...` does the same thing** here.
+
+3. **Smoke check** — `http://localhost:8080/health`, then e.g.:
+
+   ```bash
+   curl -i -X POST -H "Content-Type: application/json" \
+     -d '{"email":"you@example.com","repo":"cli/cli"}' \
+     http://localhost:8080/api/subscribe
+   ```
+
+### MailHog (SMTP + inbox UI on :8025)
+
+To exercise the **SMTP** path and read messages in a browser, add MailHog (after Postgres is up):
+
+```bash
+docker compose --profile mailhog up -d mailhog
+```
+
+- **Web UI:** `http://localhost:8025` (inbox / MIME view)
+- **SMTP from the host-run API:** set e.g.  
+  `EMAIL_DRIVER=smtp` `SMTP_HOST=localhost` `SMTP_PORT=1025` `SMTP_FROM=noreply@local`  
+  (leave `SMTP_USERNAME` / `SMTP_PASSWORD` empty). Restart `go run`.
+
+Inside **Docker Compose’s `app` service**, SMTP is `mailhog:1025`, not `localhost`.
+
+### Full stack in Docker (optional)
 
 ```bash
 docker compose up --build
-# with MailHog UI + SMTP sink:
+```
+
+- API: `http://localhost:8080`, health: `/health`
+- Default **`EMAIL_DRIVER=log`** (confirmation URLs in the `app` container logs).
+
+With MailHog profile (starts MailHog alongside the bundled **`app`** image — not `go run` on the host):
+
+```bash
 docker compose --profile mailhog up --build
 ```
 
-App:
-- API: `http://localhost:8080`
-- Health: `http://localhost:8080/health`
+### Web UI with Vite (optional)
 
-MailHog (when enabled):
-- UI: `http://localhost:8025`
-- SMTP: `mailhog:1025` (from inside Docker network)
-
-### API (Swagger)
-Base path: `/api`
-
-- `POST /api/subscribe` (form-data: `email`, `repo`; optional JSON body supported)
-- `GET /api/confirm/{token}`
-- `GET /api/unsubscribe/{token}`
-- `GET /api/subscriptions?email={email}`
-
-### Environment variables
-
-#### HTTP
-- **`PORT`**: HTTP port (default: `8080`)
-- **`PUBLIC_URL`**: base URL used for links in emails. Example: `http://localhost:8080`
-
-#### Database
-- **`DATABASE_URL`**: Postgres connection string
-  - Docker: `postgres://postgres:postgres@postgres:5432/releases?sslmode=disable`
-  - Host: `postgres://<user>@localhost:5432/releases?sslmode=disable`
-
-Migrations run automatically on startup via `golang-migrate`.
-
-#### GitHub
-- **`GITHUB_TOKEN`** (optional): increases rate limit from 60 req/hour to 5000 req/hour.
-
-#### Email
-- **`EMAIL_DRIVER`**: `log` or `smtp` (default: `log`)
-- **`SMTP_HOST`**: SMTP host (default: `mailhog`)
-- **`SMTP_PORT`**: SMTP port (default: `1025`)
-- **`SMTP_FROM`**: from address (default: `noreply@local`)
-- **`SMTP_USERNAME`** / **`SMTP_PASSWORD`**: optional auth (MailHog uses none)
-
-#### Scanner
-- **`SCAN_INTERVAL`**: how often to scan GitHub for new releases. Example: `10s`, `2m` (default: `2m`).
-
-#### CORS (browser UI on another origin, e.g. Vercel)
-- **`CORS_ALLOWED_ORIGINS`**: comma-separated list of allowed `Origin` values (e.g. `https://my-app.vercel.app,http://localhost:5173`). If set (non-empty), CORS middleware is enabled with **`GET`**, **`POST`**, **`OPTIONS`**.
-- **`CORS_ALLOW_VERCEL_SUBDOMAINS`**: set to `1` or `true` to allow any origin whose host ends with **`.vercel.app`** (preview + production URLs), in addition to exact matches in **`CORS_ALLOWED_ORIGINS`**.
-
-### Deploy: Fly.io (API) + Vercel (web UI)
-
-The **API** runs on [Fly.io](https://fly.io/) using the repo **`Dockerfile`**. The **subscribe UI** is a static [Vite](https://vitejs.dev/) app in **`web/`**, deployed to [Vercel](https://vercel.com/) with **`VITE_API_URL`** pointing at your Fly app.
-
-#### 1) Postgres on Fly
+Only if you want the static page from **`web/`** on a dev server (`http://localhost:5173`):
 
 ```bash
-fly postgres create --name email-subscription-db --region ams
-fly postgres attach email-subscription-db -a <your-api-app-name>
-```
-
-(`attach` sets **`DATABASE_URL`** on the app.)
-
-#### 2) API app
-
-1. Install the [Fly CLI](https://fly.io/docs/hands-on/install-flyctl/) and log in.
-2. Edit **`fly.toml`**: set **`app`** to a unique name (replace `email-subscription-api`).
-3. From the repo root:
-
-```bash
-fly launch --no-deploy   # if first time; reuse existing fly.toml when prompted
-fly secrets set \
-  PUBLIC_URL="https://<your-api-app-name>.fly.dev" \
-  EMAIL_DRIVER="smtp" \
-  SMTP_HOST="smtp.gmail.com" \
-  SMTP_PORT="587" \
-  SMTP_FROM="you@gmail.com" \
-  SMTP_USERNAME="you@gmail.com" \
-  SMTP_PASSWORD="<app-password>" \
-  GITHUB_TOKEN="<optional-github-pat>" \
-  CORS_ALLOW_VERCEL_SUBDOMAINS="true"
-```
-
-Add **`CORS_ALLOWED_ORIGINS`** if you use a **custom domain** on Vercel (not `*.vercel.app`), e.g. `https://releases.example.com`.
-
-4. Deploy:
-
-```bash
-fly deploy
-```
-
-5. Smoke test: `https://<your-app>.fly.dev/health`
-
-**Important:** **`PUBLIC_URL`** must be the **public HTTPS URL** of the API so confirmation and unsubscribe links in emails work.
-
-#### 3) Web UI on Vercel
-
-**Why a root `vercel.json` exists:** If the Vercel **Root Directory** is left as the repository root (`.`), Vercel may detect **Go** (`go.mod`) and try to run a **serverless** runtime—then `/` crashes with **`FUNCTION_INVOCATION_FAILED`**. The repo root **`vercel.json`** forces a static build: `cd web && npm run build` and **`outputDirectory`: `web/dist`**.
-
-You can deploy in either mode:
-
-1. **Recommended:** Vercel → **Settings → General → Root Directory** = **`web`**. Then **`web/vercel.json`** applies (`framework: vite`, output **`dist`**).
-2. **Or** leave Root Directory **empty** / **`.`** and rely on the **root `vercel.json`** (builds from **`web/`** automatically).
-
-Under **Environment Variables**, add **`VITE_API_URL`** = `https://<your-api-app-name>.fly.dev` (no trailing slash). Apply to Production (and Preview if you want preview deploys to hit the same API). Redeploy after changing it.
-
-**If you still see `500` / Serverless Function crashed:** In **Settings → General**, clear any **Framework Override** that isn’t **Vite** / static, remove custom **Rewrites** to serverless routes, and confirm **Output Directory** matches **`dist`** (when root is `web`) or leave it unset when using the root **`vercel.json`**.
-
-3. Deploy. Local dev: copy **`web/.env.example`** to **`web/.env`** and run:
-
-```bash
+cp web/.env.example web/.env   # VITE_API_URL=http://localhost:8080
 cd web && npm install && npm run dev
 ```
 
-Open **http://localhost:5173**. The browser will call a **different origin** than the API (e.g. `http://localhost:8080`), so enable CORS on the API: set **`CORS_ALLOWED_ORIGINS=http://localhost:5173`** (e.g. in `docker-compose.yml` for the `app` service). Fly production can use **`CORS_ALLOW_VERCEL_SUBDOMAINS=true`** for `*.vercel.app` plus any custom domain in **`CORS_ALLOWED_ORIGINS`**.
+Then enable CORS on the API, e.g. `CORS_ALLOWED_ORIGINS=http://localhost:5173`.
 
-### Optional: real inbox (SMTP, e.g. Gmail)
-
-By default the app uses **`EMAIL_DRIVER=log`** (URLs printed in container logs) or MailHog when you use the MailHog compose profile. To receive confirmation and release mail in a real mailbox:
-
-1. Set **`EMAIL_DRIVER=smtp`** and the SMTP variables under **Email** above (`SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, `SMTP_USERNAME`, `SMTP_PASSWORD`).
-2. **Gmail (personal):** enable 2-Step Verification, then create an [App Password](https://support.google.com/accounts/answer/185833) and use that 16-character value as **`SMTP_PASSWORD`**. Use **`smtp.gmail.com`**, port **`587`**, and set **`SMTP_USERNAME`** and **`SMTP_FROM`** to the same Gmail address.
-3. **`PUBLIC_URL`** must match a URL you can open from the device where you read email (e.g. `http://localhost:8080` only works on the same machine as Docker). For links from a phone, use a tunnel or a deployed base URL.
-
-**Secrets:** do not commit real passwords. Use a **`.env` file** (keep it out of git—add `.env` to `.gitignore`) and wire it with Compose **`env_file`**, or export variables in your shell before `docker compose up`. Rotate any credential that was ever committed to git.
-
-If **`POST /api/subscribe`** returns **500** after switching to SMTP, the subscription row may still be **`pending`**; fix SMTP, remove that row (or wait and use another email/repo), then subscribe again. A duplicate active/pending subscription returns **409 Conflict**.
-
-### Testing
-Run unit tests:
+### Tests
 
 ```bash
 go test ./...
 ```
 
-Optional MailHog integration test:
+Optional MailHog integration test (stack up first):
+
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.mailhog.yml --profile mailhog up -d --build
+docker compose -f docker-compose.yml -f docker-compose.mailhog.yml up -d --build
 INTEGRATION_MAILHOG=1 go test ./internal/integrations -run TestSubscribeFlow_SendsEmailToMailhog -v -count=1
 ```
 
-### Verify
-```bash
-go test ./...
-curl -i -X POST -d "email=new@example.com&repo=cli/cli" http://localhost:8080/api/subscribe
-```
+---
 
-### Design notes / limitations
-- Monolith process: API + scanner/notifier run in one service.
-- `last_seen_tag` is stored per repo in `repo_state`, not per subscription.
-- Deduping is handled by `notification_log (subscription_id, release_tag)` unique.
-- Notifications support retries using `notification_log.status` (`pending/sent/failed`).
-- GitHub client retries on 429 using `Retry-After` and `X-RateLimit-Reset` when available.
+## Configuration (environment variables)
+
+| Variable | Purpose | Default / notes |
+|----------|---------|-----------------|
+| `PORT` | Listen port | `8080` |
+| `PUBLIC_URL` | Base URL for confirm/unsubscribe links in email | e.g. `http://localhost:8080`; production must be **public HTTPS** |
+| `DATABASE_URL` | Postgres DSN | Compose sets `postgres` hostname |
+| `GITHUB_TOKEN` | Bearer token for GitHub API | Optional for public repos; **invalid token → 401** and subscribe fails. Omit or use a valid PAT. Fine-grained PATs must allow **all repos you want to support**, not one repo only. |
+| `EMAIL_DRIVER` | `log` or `smtp` | `log` |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, `SMTP_USERNAME`, `SMTP_PASSWORD` | SMTP | Defaults suit MailHog/local |
+| `SCAN_INTERVAL` | Scanner ticker | e.g. `2m` |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated `Origin` values | If non-empty, enables CORS for `GET`/`POST`/`OPTIONS` |
+| `CORS_ALLOW_VERCEL_SUBDOMAINS` | `1` / `true` | Allows any `https://*.vercel.app` origin (plus `CORS_ALLOWED_ORIGINS` for custom domains) |
+
+Do not commit secrets; use Fly secrets, Vercel env UI, or local `.env` (gitignored).
+
+---
+
+## Deploy
+
+### API on Fly.io
+
+1. Create Postgres (or use existing): `fly postgres create`, then `fly postgres attach <db-app> -a <api-app>`.
+2. Set `app` in **`fly.toml`** to your API app name.
+3. Set secrets (example):
+
+   ```bash
+   fly secrets set \
+     PUBLIC_URL="https://<api-app>.fly.dev" \
+     GITHUB_TOKEN="<valid-pat-or-omit>" \
+     EMAIL_DRIVER="smtp" \
+     SMTP_HOST="smtp.gmail.com" SMTP_PORT="587" \
+     SMTP_FROM="you@gmail.com" SMTP_USERNAME="you@gmail.com" \
+     SMTP_PASSWORD="<app-password>" \
+     CORS_ALLOW_VERCEL_SUBDOMAINS="true" \
+     -a <api-app>
+   ```
+
+   Add `CORS_ALLOWED_ORIGINS` for a **non-`*.vercel.app`** frontend domain.
+
+4. Deploy from machine with your source: **`fly deploy`** (builds local tree; no Git push required unless you use CI).
+
+5. Check **`https://<api-app>.fly.dev/health`**. There is **no** route on **`/`** (404 is normal).
+
+### Web on Vercel
+
+1. **Environment:** `VITE_API_URL` = `https://<api-app>.fly.dev` (no trailing slash), scoped to **Production** (and Preview if needed).
+2. **Root directory:** either **`web`** (uses `web/vercel.json`) or repo **root** (uses root `vercel.json` so Vercel does not treat the repo as a Go serverless project).
+3. **Redeploy** after env changes; use **“Clear build cache and redeploy”** if the UI still shows “configure VITE_API_URL”.
+
+Vercel builds from **Git** by default: push (or merge) so production gets code changes; env-only updates still need a redeploy.
+
+---
+
+## Operations & troubleshooting
+
+| Symptom | Likely cause |
+|---------|----------------|
+| **`github: status 401`** in logs (`api error -> 500`) | Bad/expired `GITHUB_TOKEN`, or fine-grained PAT not allowed for that repo. Fix secret or `fly secrets unset GITHUB_TOKEN` for public-only + lower rate limits. |
+| **`POST /api/subscribe` → 500** after SMTP misconfiguration | Row may be **`pending`**; fix SMTP, remove row or use another email/repo; duplicate returns **409**. |
+| Fly logs missing handler lines | Stdlib `log` and Chi both use **stdout** in current code so errors sit next to access logs. Tail: `fly logs -a <app>`. |
+
+Gmail: 2FA + [App Password](https://support.google.com/accounts/answer/185833), `smtp.gmail.com:587`, same address for `SMTP_FROM` and `SMTP_USERNAME`.
+
+---
+
+## Developing further
+
+| Goal | Where to look |
+|------|----------------|
+| API behavior / status codes | `internal/httpapi/handlers/subscription_handlers.go` |
+| Subscribe / confirm rules | `internal/service/subscription.go` |
+| GitHub calls / retries | `internal/integrations/github/http_client.go` |
+| DB schema & queries | `migrations/`, `internal/store/postgres/` |
+| Scanner cadence & notifications | `internal/jobs/scanner.go` |
+| CORS rules | `internal/httpapi/router.go` |
+| Contract for external clients | **`swagger.yaml`** |
+
+Keep **`swagger.yaml`** in sync if you change paths, methods, or response semantics. Use the **`curl`** subscribe example under **Run locally** for a quick manual check.
